@@ -6,23 +6,25 @@ import XPlaneDSF as dsf
 
 class HGTParser(dsf.XPlaneDSF):
     def __init__(self):
-        self.demi = None
+        self.current_demi = None
+        self.demi_used = None
         self.hgt = None
 
     def gotDEMS(self):
-        self.demi = None
+        self.current_demi = None
 
     def gotDEMI(self, demi):
-        self.demi = demi
+        self.current_demi = demi
 
     def gotDEMD(self, bs):
-        if self.demi:
-            ver, bpp, flags, w, h, scl, off = self.demi
+        if self.current_demi:
+            ver, bpp, flags, w, h, scl, off = self.current_demi
             if ver != 1: return
             if bpp != 2: return
             if (flags & 3) != 1: return
             if w != 1201 or h != 1201: return
             if len(bs) != 2884802: return
+            self.demi_used = self.current_demi
             self.hgt = list(struct.unpack('<1442401h', bs))
 
 def extract_hgt(dsf, tmpdir = None):
