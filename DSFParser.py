@@ -10,8 +10,10 @@ class Stream:
         return self.file.tell() >= self.end_pos
 
 def parse_atom(stream):
+#    print('parse_atom', stream.file.tell(), stream.end_pos)
     if (stream.is_finished()): return None
     title, length = struct.unpack('<4sI', stream.file.read(8))
+#    print('found', title, length)
     return Atom(title, stream, length - 8)
 
 class InvalidFileError(Exception):
@@ -42,8 +44,6 @@ class Atom:
     def get_bytes(self):
         if self.content:
             return self.content
-        elif self.stream.is_finished():
-            return None
         else:
             self.content = self.stream.file.read(self.length)
             self.content_read = True

@@ -2,6 +2,7 @@ import shutil
 import sys
 import os
 import scenery as s
+import terrain as t
 import DSFParser as p
 import DSFBuilder as b
 
@@ -29,10 +30,16 @@ class RootConverter(BaseConverter):
     def got_atom(self, atom):
         if atom.title == b'DAEH':
             self.head = self.convert_atoms(atom, HeadConverter)
-        if atom.title == b'NFED':
+        elif atom.title == b'NFED':
             self.defn = self.convert_atoms(atom, lambda s: DefnConverter(s, self.head))
         else:
             self.pass_atom(atom)
+
+    def get_extfiles(self):
+        return self.defn.extfiles
+
+    def get_data_prefix(self):
+        return self.defn.prefix
 
 class HeadConverter(BaseConverter):
     def __init__(self, stream):
@@ -51,7 +58,7 @@ class DefnConverter(BaseConverter):
     def __init__(self, stream, head):
         super().__init__(stream)
         self.head = head
-        self.prefix = os.path.join('data','{0:+02d}{1:+03d}', '{2:+02d}{3:+03d}') \
+        self.prefix = os.path.join('data','{0:+03d}{1:+04d}', '{2:+03d}{3:+04d}') \
             .format((head.south // 10) * 10, (head.west // 10) * 10, head.south, head.west)
         self.extfiles = []
 
@@ -71,30 +78,48 @@ def convert_dsf(src, dest):
     b.write_dsf(dest, result.build_atoms)
     return result
 
-def exec_and_pass(arg, action):
-    action()
-    return arg
+def link_sceneries(indirs, outdir):
+    datafiles = dict()
+#    dsfs = (os.path.join(indir, dsf) for indir in indirs for dsf in s.list_dsfs(indir))
+    for indir in indirs:
+        dsfs = s.list_dsfs(indir)
+        dsfdirs = set(os.path.dirname(d) for d in dsfs)
+        for d in dsfdirs:
+            os.makedirs(os.path.join(outdir, d), exist_ok = True)
 
-def link_scenery(indir, outdir):
-    files = s.get_files_used(indir)
-    dirs = set(os.path.dirname(f) for f in files)
-    for d in dirs:
-        os.makedirs(os.path.join(outdir, d), exist_ok = True)
-#        print('Create dir:', os.path.join(outdir, d))
-    for f in files:
-#        shutil.move(os.path.join(indir, f), os.path.join(outdir, f))
-        outfile = os.path.join(outdir, f)
-        if os.path.isfile(outfile):
-            print('Not linking', outfile, ', file exists')
-        else:
-            os.link(os.path.join(indir, f), outfile)
-#        print('Move', os.path.join(indir, f), 'to', os.path.join(outdir, f))
+        for dsf in dsfs:
+            outname = os.path.join(outdir, dsf)
+            tmpname = outname + '.tmp'
+            print('Converting', os.path.join(indir, dsf))
+            conv_result = convert_dsf(os.path.join(indir, dsf), tmpname)
+            prefix = conv_result.get_data_prefix()
+            terfiles = conv_result.get_extfiles()
+            textures = set(os.path.join('terrain', ts) for ter in terfiles for ts in t.get_files_used(os.path.join(indir, ter)))
+            extfiles = terfiles + list(textures)
+            print(len(extfiles), 'external files')
+            for d in set(os.path.dirname(ext) for ext in extfiles):
+                os.makedirs(os.path.join(outdir, prefix, d), exist_ok = True)
+
+            reused = 0
+            for ext in extfiles:
+                src_ext = None
+                key = os.path.basename(ext)
+                try:
+                    src_ext = datafiles[key]
+                    reused += 1
+                except KeyError:
+                    src_ext = os.path.join(indir, ext)
+                    datafiles[key] = src_ext
+#                print('linking', src_ext, '->', os.path.join(outdir, prefix, ext))    
+                os.link(src_ext, os.path.join(outdir, prefix, ext))    
+
+            os.replace(tmpname, outname)
+            print('ok,', reused, 'files reused')
 
 if __name__ == "__main__":
     dirs = list(sys.argv[1:])
     outdir = dirs.pop()
-    for d in dirs:
-        link_scenery(d, outdir)
+    link_sceneries(dirs, outdir)
 #    files = [exec_and_pass(f, lambda: os.path.isfile(f) or exit('Broken scenery, "' + f + '" not found.')) for f in (os.path.join(d, f) for d in dirs for f in s.get_files_used(d))]
 #    filedirs = set(os.path.dirname(f) for f in files)
 #    print(filedirs)
